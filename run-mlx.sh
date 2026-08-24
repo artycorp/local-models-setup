@@ -97,6 +97,15 @@ ln -sfn "$MODEL_DIR" "$MODEL_REF"
 
 if [[ ! -x "$PY" ]]; then
     echo "MLX environment Python not found: $PY" >&2
+    echo "Run: ./update-deps.sh --no-llama-cpp" >&2
+    exit 1
+fi
+
+if ! "$PY" -c "import mlx.core" >/dev/null 2>&1; then
+    echo "mlx-vlm isn't installed in $PY" >&2
+    echo "This happens when download-models.sh created .venv-mlx before" >&2
+    echo "update-deps.sh did (it only installs huggingface_hub there)." >&2
+    echo "Run: ./update-deps.sh --no-llama-cpp" >&2
     exit 1
 fi
 
