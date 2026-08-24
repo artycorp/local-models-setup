@@ -73,6 +73,7 @@ memory. `/v1/models` returns an empty list in the meantime.
 ## Commands
 
 ```bash
+./download-models.sh          # fetches E4B MLX weights (default); --12b / --gguf / --all for the rest
 ./run-mlx.sh                  # MLX + E4B (default), model: "gemma-e4b"
 ./run-mlx.sh --12b            # MLX + 12B, full 128K, model: "gemma-12b"
 sudo ./check-16gb.sh ./run-mlx.sh   # check against the 16 GB machine's ceiling
