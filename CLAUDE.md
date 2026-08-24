@@ -73,6 +73,7 @@ memory. `/v1/models` returns an empty list in the meantime.
 ## Commands
 
 ```bash
+./update-deps.sh              # clones/updates llama.cpp + rebuilds, creates/updates .venv-mlx
 ./download-models.sh          # fetches E4B MLX weights (default); --12b / --gguf / --all for the rest
 ./run-mlx.sh                  # MLX + E4B (default), model: "gemma-e4b"
 ./run-mlx.sh --12b            # MLX + 12B, full 128K, model: "gemma-12b"
@@ -88,7 +89,7 @@ curl -sf localhost:8080/health
 
 ## Building llama.cpp
 
-A build already exists in `llama.cpp/build` (Unix Makefiles, `Release`, `GGML_METAL=ON`, `GGML_BLAS=ON`). To rebuild after an upstream `git pull`:
+A build already exists in `llama.cpp/build` (Unix Makefiles, `Release`, `GGML_METAL=ON`, `GGML_BLAS=ON`). `./update-deps.sh` handles the whole cycle — clone if missing, `git pull` if behind `origin/master`, rebuild with the same flags — and does the same for `.venv-mlx` (`pip install -U mlx-vlm`). To do it by hand instead:
 
 ```bash
 cmake -B llama.cpp/build -S llama.cpp -DCMAKE_BUILD_TYPE=Release
