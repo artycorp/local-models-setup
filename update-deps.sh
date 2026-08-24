@@ -99,12 +99,12 @@ update_mlx() {
     if [[ ! -x .venv-mlx/bin/python ]]; then
         echo "=== MLX venv: not found, creating .venv-mlx ==="
         python3 -m venv .venv-mlx
-        .venv-mlx/bin/pip install -q -U pip
+        .venv-mlx/bin/pip install -U pip
     fi
 
     echo "=== MLX: checking for updates ==="
     before=$(.venv-mlx/bin/pip show mlx-vlm 2>/dev/null | awk '/^Version/{print $2}')
-    .venv-mlx/bin/pip install -q -U mlx-vlm "huggingface_hub[cli]"
+    .venv-mlx/bin/pip install -U mlx-vlm "huggingface_hub[cli]"
     after=$(.venv-mlx/bin/pip show mlx-vlm 2>/dev/null | awk '/^Version/{print $2}')
 
     if [[ "$before" == "$after" ]]; then

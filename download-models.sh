@@ -59,7 +59,7 @@ elif command -v huggingface-cli >/dev/null 2>&1; then
 else
     echo "No huggingface_hub CLI found — setting one up in .venv-mlx..." >&2
     [[ -x .venv-mlx/bin/python ]] || python3 -m venv .venv-mlx
-    .venv-mlx/bin/pip install -q -U pip "huggingface_hub[cli]"
+    .venv-mlx/bin/pip install -U pip "huggingface_hub[cli]"
     HF=.venv-mlx/bin/hf
 fi
 
