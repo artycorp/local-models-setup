@@ -15,14 +15,20 @@ cd "$SCRIPT_DIR"
 WITH_LLAMACPP=1
 WITH_MLX=1
 REBUILD=1
+USE_BREW=0
 
 usage() {
     cat <<'EOF'
 Usage: ./update-deps.sh [options]
 
-    --no-llama-cpp   skip llama.cpp (clone/pull/rebuild)
+    --no-llama-cpp   skip llama.cpp
     --no-mlx         skip the MLX venv (create/pip install -U)
-    --no-rebuild     pull llama.cpp updates but don't rebuild
+    --no-rebuild     pull llama.cpp updates but don't rebuild (source path only)
+    --brew           get llama.cpp via `brew install --HEAD` instead of the
+                     vendored source build. Simpler, but Homebrew's Metal/BLAS
+                     flags come from its separate "ggml" dependency, not the
+                     -DGGML_METAL=ON -DGGML_BLAS=ON build this repo measured —
+                     re-check prefill speed after switching to this path.
 
 Clones llama.cpp and creates .venv-mlx if they don't exist yet, so this
 also works as first-time setup on a fresh machine.
@@ -34,6 +40,7 @@ while [[ $# -gt 0 ]]; do
         --no-llama-cpp) WITH_LLAMACPP=0; shift ;;
         --no-mlx)       WITH_MLX=0; shift ;;
         --no-rebuild)   REBUILD=0; shift ;;
+        --brew)         USE_BREW=1; shift ;;
         -h|--help)      usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
     esac
@@ -73,6 +80,21 @@ update_llama_cpp() {
     fi
 }
 
+update_llama_cpp_brew() {
+    if ! command -v brew >/dev/null 2>&1; then
+        echo "Homebrew not found — install it first: https://brew.sh" >&2
+        return 1
+    fi
+
+    echo "=== llama.cpp: updating via brew --HEAD ==="
+    echo "Note: this build's Metal/BLAS tuning comes from brew's 'ggml'"
+    echo "formula, not the flags this repo's benchmarks were measured with."
+    # --fetch-HEAD forces brew to check origin/master even when a HEAD
+    # install already exists; without it, brew treats any HEAD install
+    # as current and never looks for new commits.
+    brew install --HEAD --fetch-HEAD llama.cpp
+}
+
 update_mlx() {
     if [[ ! -x .venv-mlx/bin/python ]]; then
         echo "=== MLX venv: not found, creating .venv-mlx ==="
@@ -92,7 +114,13 @@ update_mlx() {
     fi
 }
 
-[[ $WITH_LLAMACPP -eq 1 ]] && update_llama_cpp
+if [[ $WITH_LLAMACPP -eq 1 ]]; then
+    if [[ $USE_BREW -eq 1 ]]; then
+        update_llama_cpp_brew
+    else
+        update_llama_cpp
+    fi
+fi
 [[ $WITH_MLX -eq 1 ]] && update_mlx
 
 echo ""
