@@ -46,15 +46,21 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if command -v hf >/dev/null 2>&1; then
+# Homebrew's Python refuses global "pip install" (PEP 668,
+# externally-managed-environment) — a venv is the straightforward fix, and
+# .venv-mlx is the same one run-mlx.sh/update-deps.sh use, so this doesn't
+# create a second, redundant environment.
+if [[ -x .venv-mlx/bin/hf ]]; then
+    HF=.venv-mlx/bin/hf
+elif command -v hf >/dev/null 2>&1; then
     HF=hf
 elif command -v huggingface-cli >/dev/null 2>&1; then
     HF=huggingface-cli
 else
-    echo "No huggingface_hub CLI found in PATH — installing it with pip..." >&2
-    pip3 install --user -q -U "huggingface_hub[cli]"
-    HF="$(python3 -m site --user-base)/bin/hf"
-    [[ -x "$HF" ]] || HF=hf   # fall back to PATH in case --user bin is already on it
+    echo "No huggingface_hub CLI found — setting one up in .venv-mlx..." >&2
+    [[ -x .venv-mlx/bin/python ]] || python3 -m venv .venv-mlx
+    .venv-mlx/bin/pip install -q -U pip "huggingface_hub[cli]"
+    HF=.venv-mlx/bin/hf
 fi
 
 echo "Using: $HF"
