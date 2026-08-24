@@ -1,19 +1,18 @@
-"""Запуск сервера mlx-vlm с настроенными лимитами памяти MLX.
+"""Runs the mlx-vlm server with tuned MLX memory limits.
 
-CLI сервера не даёт управлять аллокатором, а на 16 ГБ это решает, влезет
-конфигурация или уйдёт в своп. Два рычага:
+The server's CLI gives no control over the allocator, and on 16 GB that's
+what decides whether a configuration fits or swaps. Two levers:
 
-  cache_limit  — MLX держит освобождённые буферы в кэше, чтобы не ходить к
-                 аллокатору за каждым тензором. На машине с запасом это
-                 правильно, на тесной — кэш раздувает пик на 1-1.5 ГБ.
+  cache_limit  — MLX keeps freed buffers in a cache to avoid hitting the
+                 allocator for every tensor. Fine on a machine with headroom,
+                 but on a tight one the cache inflates the peak by 1-1.5 GB.
 
-  wired_limit  — сколько памяти останется резидентной. Ноль (по умолчанию)
-                 означает решение на усмотрение системы; задавать его выше
-                 системного лимита нельзя, он поднимается только через
-                 sudo sysctl iogpu.wired_limit_mb.
+  wired_limit  — how much memory stays resident. Zero (default) leaves it
+                 up to the system; it can't be set above the system limit,
+                 which only goes up via sudo sysctl iogpu.wired_limit_mb.
 
-Обе величины задаются переменными окружения, чтобы run-mlx.sh мог их
-менять, не трогая этот файл.
+Both values come from environment variables so run-mlx.sh can change them
+without touching this file.
 """
 
 import os
@@ -28,7 +27,7 @@ def _gb(name: str, default: str) -> float:
     try:
         return float(raw)
     except ValueError:
-        print(f"[mlx-tuned] {name}={raw!r} — не число, беру {default}", file=sys.stderr)
+        print(f"[mlx-tuned] {name}={raw!r} is not a number, using {default}", file=sys.stderr)
         return float(default)
 
 
@@ -44,16 +43,16 @@ def main() -> None:
     if wired_gb > 0:
         if wired_gb >= recommended:
             print(
-                f"[mlx-tuned] wired_limit {wired_gb:.1f} ГБ не ниже системного "
-                f"лимита {recommended:.1f} ГБ — пропускаю, иначе MLX выдаст ошибку",
+                f"[mlx-tuned] wired_limit {wired_gb:.1f} GB is not below the system "
+                f"limit of {recommended:.1f} GB — skipping, otherwise MLX would raise an error",
                 file=sys.stderr,
             )
         else:
             mx.set_wired_limit(int(wired_gb * 1e9))
 
     print(
-        f"[mlx-tuned] RAM {total:.1f} ГБ, потолок GPU {recommended:.1f} ГБ, "
-        f"кэш MLX {cache_gb:.1f} ГБ",
+        f"[mlx-tuned] RAM {total:.1f} GB, GPU ceiling {recommended:.1f} GB, "
+        f"MLX cache {cache_gb:.1f} GB",
         flush=True,
     )
 

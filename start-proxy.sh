@@ -1,5 +1,5 @@
 #!/bin/bash
-# Запускает llm-proxy если не запущен
+# Starts llm-proxy if it isn't already running
 PROXY_PORT=8081
 PID_FILE="/tmp/llm-proxy.pid"
 

@@ -1,23 +1,23 @@
-# Веса моделей — десятки гигабайт, качаются заново на целевой машине.
+# Model weights — tens of gigabytes, redownloaded on the target machine.
 models/
 
-# Симлинки на модели: путь зависит от того, что реально скачано локально,
-# run-mlx.sh пересоздаёт их сам при каждом запуске (ln -sfn).
+# Symlinks to models: the path depends on what's actually downloaded
+# locally, run-mlx.sh recreates them on every launch (ln -sfn).
 gemma-e4b
 gemma-12b
 
-# Виртуальное окружение MLX — ставится заново (requirements ниже).
+# MLX virtual environment — reinstalled from scratch (see requirements below).
 .venv-mlx/
 
-# Вендоренный апстрим llama.cpp: отдельный git-репозиторий (origin
-# ggml-org/llama.cpp), не сабмодуль. Клонировать и собирать отдельно —
-# см. раздел "Сборка llama.cpp" в CLAUDE.md.
+# Vendored llama.cpp upstream: a separate git repository (origin
+# ggml-org/llama.cpp), not a submodule. Clone and build it separately —
+# see the "Building llama.cpp" section in CLAUDE.md.
 llama.cpp/
 
-# Старый бэкап собранных бинарников — не исходники, пересобирается.
+# Old backup of built binaries — not source, rebuilt on demand.
 llama-bin-bak-*/
 
-# Локальная память Claude Code для этого проекта.
+# Claude Code's local memory for this project.
 .remember/
 
 .DS_Store

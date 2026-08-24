@@ -2,106 +2,107 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Что это
+## What this is
 
-Личный сетап для локального инференса Gemma на Apple Silicon: собранный из исходников `llama.cpp` (Metal-бэкенд) + тонкий Node-прокси, который снимает статистику генерации в `~/.llm-stats`. Своего кода тут два файла — `run.sh` и `llm-proxy.mjs`; всё остальное в `llama.cpp/` — это апстрим-клон.
+A personal setup for local Gemma inference on Apple Silicon: `llama.cpp` built from source (Metal backend) plus a thin Node proxy that captures generation stats into `~/.llm-stats`. The only code that's actually ours is two files — `run.sh` and `llm-proxy.mjs`; everything under `llama.cpp/` is an upstream clone.
 
-Есть два пути запуска: старый на llama.cpp (`run.sh`) и новый на MLX (`run-mlx.sh`).
-Для длинных документов рабочий — MLX, см. «Почему MLX, а не llama.cpp» ниже.
+There are two ways to run it: the old llama.cpp path (`run.sh`) and the newer MLX path (`run-mlx.sh`).
+For long documents, MLX is the one that works — see "Why MLX, not llama.cpp" below.
 
-## Топология процессов
+## Process topology
 
 ```
 run.sh     ──► llama-server        :8080   (GGUF, Metal)
-run-mlx.sh ──► mlx_server_tuned.py :8080   (MLX, тот же OpenAI-совместимый /v1)
-           └─► llm-proxy.mjs       :8081 ──► 192.168.10.25:8081  (удалённый box)
-                                             └─► пишет ~/.llm-stats
+run-mlx.sh ──► mlx_server_tuned.py :8080   (MLX, same OpenAI-compatible /v1)
+           └─► llm-proxy.mjs       :8081 ──► 192.168.10.25:8081  (remote box)
+                                             └─► writes ~/.llm-stats
 ```
 
-Важное несоответствие, которое легко принять за баг: прокси **не** проксирует локальный сервер с :8080. `TARGET_HOST` в `llm-proxy.mjs:11` жёстко указывает на машину `192.168.10.25`, а `run.sh` поднимает свой сервер на :8080 и рядом запускает прокси. То есть прокси обслуживает удалённый инстанс, а не тот, что только что стартовал. Так же разъезжаются размеры контекста: `--ctx-size 131072` в `run.sh` против `CTX_SIZE = 98304` в прокси (эта константа используется только для расчёта процента заполнения в статистике). Перед правкой уточняй у пользователя, какой из двух вариантов считается верным.
+An important mismatch that's easy to mistake for a bug: the proxy does **not** proxy the local server on :8080. `TARGET_HOST` in `llm-proxy.mjs:11` hardcodes the machine `192.168.10.25`, while `run.sh` starts its own server on :8080 and launches the proxy alongside it. So the proxy serves the remote instance, not the one that just started. Context sizes diverge the same way: `--ctx-size 131072` in `run.sh` versus `CTX_SIZE = 98304` in the proxy (that constant is only used to compute the fill percentage in the stats). Confirm with the user which of the two is meant to be authoritative before changing either.
 
-Прокси считает статистику только для URL, содержащих `/completions`; остальные запросы просто пайпятся. Тайминги достаются из последнего SSE-чанка (`extractTimings`), поэтому ответ клиенту не буферизуется — чанки пересылаются сразу, а копия накапливается для парсинга.
+The proxy only computes stats for URLs containing `/completions`; everything else is just piped through. Timings come from the last SSE chunk (`extractTimings`), so the response to the client isn't buffered — chunks are forwarded immediately while a copy accumulates for parsing.
 
-## Почему MLX, а не llama.cpp
+## Why MLX, not llama.cpp
 
-Замерено на M1 Pro на документе в 123K токенов (август 2026, llama.cpp build 1459):
+Measured on an M1 Pro on a 123K-token document (August 2026, llama.cpp build 1459):
 
-| рантайм | модель | префилл | время префилла | пик памяти |
+| runtime | model | prefill | prefill time | peak memory |
 |---|---|---|---|---|
-| MLX | E4B, 80K контекста | 443 tok/s | 3.0 мин | 11.69 ГБ |
-| MLX | 12B, 123K | 83 tok/s | 25 мин | 11.75 ГБ |
-| llama.cpp | 12B, 123K | 27 tok/s (расчёт) | 76 мин | ~10.2 ГБ |
+| MLX | E4B, 80K context | 443 tok/s | 3.0 min | 11.69 GB |
+| MLX | 12B, 123K | 83 tok/s | 25 min | 11.75 GB |
+| llama.cpp | 12B, 123K | 27 tok/s (computed) | 76 min | ~10.2 GB |
 
-Причина отставания llama.cpp — не алгоритм, а одно ядро. Оба рантайма одинаково
-ограничивают sliding-слои окном (в llama.cpp это видно по KV-буферу 480 MiB вместо
-2048, в mlx-vlm — по `RotatingKVCache`). Но attention глобальных слоёв Gemma 4 — это
-MQA с одной KV-головой на 16 Q-голов, и Metal-ядро llama.cpp выдаёт на нём
-**0.51 TFLOPS против 3.82 TFLOPS**, которые тот же GPU показывает на матричных
-умножениях. Флагами не лечится; проверено также, что MTP-сайдкар (`draft-mtp`)
-не помогает — он не ускоряет декод на M1 Pro ни на одной глубине.
+The reason llama.cpp lags isn't the algorithm — it's one kernel. Both runtimes equally
+bound the sliding-window layers (visible in llama.cpp as a 480 MiB KV buffer instead of
+2048, and in mlx-vlm via `RotatingKVCache`). But Gemma 4's global attention layers are
+MQA with one KV head per 16 Q heads, and llama.cpp's Metal kernel delivers
+**0.51 TFLOPS versus the 3.82 TFLOPS** the same GPU gets on matrix multiplies. Flags
+don't fix it; also confirmed that the MTP sidecar (`draft-mtp`) doesn't help — it
+doesn't speed up decoding on M1 Pro at any depth.
 
-Модель `t = a·N + b·N²` описывает llama.cpp с ошибкой ≤0.1%: `a = 5.71e-3` с/токен,
-`b = 2.55e-7` с/токен². На 131K квадратичная часть съедает 85% времени.
+The model `t = a·N + b·N²` describes llama.cpp with ≤0.1% error: `a = 5.71e-3` s/token,
+`b = 2.55e-7` s/token². At 131K the quadratic term eats 85% of the time.
 
-### Что важно знать про E4B
+### What matters about E4B
 
-«Effective 4B» — это 4.5 млрд параметров в матричных умножениях, но всего в модели
-около 13 млрд: Per-Layer Embeddings занимают 262144 × 42 × 256 ≈ 2.8 млрд параметров,
-из которых на токен читается одна строка. Поэтому E4B **быстрее 12B в 4.7 раза,
-но требует памяти больше на 0.5 ГБ**, и на 16 ГБ держит около 80K контекста против
-полных 128K у 12B. Выбор между ними — не «меньше/больше», а «скорость или окно».
+"Effective 4B" means 4.5B parameters take part in matrix multiplies, but the model has
+about 13B total: Per-Layer Embeddings take up 262144 × 42 × 256 ≈ 2.8B parameters, of
+which one row per token is actually read. So E4B is **4.7x faster than 12B, but needs
+0.5 GB more memory**, and on 16 GB holds about 80K context versus the full 128K on 12B.
+The choice between them isn't "smaller/bigger" — it's "speed or window".
 
-Потолок GPU на macOS — 78% от RAM (`mx.device_info()["max_recommended_working_set_size"]`),
-то есть 12.5 ГБ на машине с 16 ГБ. Проверять конфигурацию под этот потолок:
-`sudo ./check-16gb.sh ./run-mlx.sh` — скрипт ставит `iogpu.wired_limit_mb`, гоняет
-команду, показывает дельту swapins/swapouts и всегда возвращает лимит в 0.
+The GPU ceiling on macOS is 78% of RAM (`mx.device_info()["max_recommended_working_set_size"]`),
+i.e. 12.5 GB on a 16 GB machine. To check a configuration against that ceiling:
+`sudo ./check-16gb.sh ./run-mlx.sh` — the script sets `iogpu.wired_limit_mb`, runs the
+command, shows the swapins/swapouts delta, and always restores the limit to 0.
 
-Осторожно с `mx.set_memory_limit`: это **рекомендация**, а не предел — превышение
-допускается, пока в системе есть RAM или своп, так что «прошло под лимитом» ничего
-не доказывает на машине с запасом.
+Be careful with `mx.set_memory_limit`: it's a **recommendation**, not a hard cap —
+exceeding it is allowed as long as there's RAM or swap available, so "stayed under the
+limit" proves nothing on a machine with headroom.
 
-### Поле `model` в запросах к серверу mlx-vlm
+### The `model` field in requests to the mlx-vlm server
 
-Алиасов сервер не поддерживает: значение `model` должно быть путём к весам, а при
-незнакомом значении он идёт на HuggingFace и возвращает 401. Поэтому `run-mlx.sh`
-держит в корне симлинки `gemma-e4b` и `gemma-12b` и запускает сервер через них —
-клиент шлёт короткое имя, путь совпадает с загруженным, весы не перезагружаются.
-Если послать другой путь к тем же весам, сервер перезагрузит модель (~30 секунд),
-но в память её не задвоит. `/v1/models` при этом возвращает пустой список.
+The server doesn't support aliases: the `model` value must be a path to the weights,
+and an unrecognized value makes it reach out to HuggingFace and return 401. That's why
+`run-mlx.sh` keeps `gemma-e4b` and `gemma-12b` symlinks in the project root and starts
+the server through them — the client sends the short name, the path matches what's
+loaded, and the weights never get reloaded. Sending a different path to the same
+weights makes the server reload the model (~30 seconds), but it won't duplicate it in
+memory. `/v1/models` returns an empty list in the meantime.
 
-## Команды
+## Commands
 
 ```bash
-./run-mlx.sh                  # MLX + E4B (по умолчанию), model: "gemma-e4b"
-./run-mlx.sh --12b            # MLX + 12B, полные 128K, model: "gemma-12b"
-sudo ./check-16gb.sh ./run-mlx.sh   # проверка под потолком 16-гигабайтной машины
-./run.sh                      # llama-server + прокси, ждёт /health, глушит оба по Ctrl-C
-./start-proxy.sh              # только прокси (pid в /tmp/llm-proxy.pid)
+./run-mlx.sh                  # MLX + E4B (default), model: "gemma-e4b"
+./run-mlx.sh --12b            # MLX + 12B, full 128K, model: "gemma-12b"
+sudo ./check-16gb.sh ./run-mlx.sh   # check against the 16 GB machine's ceiling
+./run.sh                      # llama-server + proxy, waits for /health, kills both on Ctrl-C
+./start-proxy.sh              # proxy only (pid in /tmp/llm-proxy.pid)
 ./stop-proxy.sh
-cat ~/.llm-stats              # контекст, скорость, кэш-хиты последнего запроса
+cat ~/.llm-stats              # context, speed, cache hits for the last request
 curl -sf localhost:8080/health
 ```
 
-Модель `run.sh` ждёт по пути `models/google_gemma-4-26B-A4B-it-Q4_K_M.gguf` от корня репозитория. Каталога `models/` в рабочем дереве сейчас нет — скрипт упадёт с понятной ошибкой, пока GGUF не положен на место.
+`run.sh` expects the model at `models/google_gemma-4-26B-A4B-it-Q4_K_M.gguf` from the repo root. There's currently no `models/` directory in the working tree — the script will fail with a clear error until the GGUF is placed there.
 
-## Сборка llama.cpp
+## Building llama.cpp
 
-Сборка уже существует в `llama.cpp/build` (Unix Makefiles, `Release`, `GGML_METAL=ON`, `GGML_BLAS=ON`). Пересборка после `git pull` в апстриме:
+A build already exists in `llama.cpp/build` (Unix Makefiles, `Release`, `GGML_METAL=ON`, `GGML_BLAS=ON`). To rebuild after an upstream `git pull`:
 
 ```bash
 cmake -B llama.cpp/build -S llama.cpp -DCMAKE_BUILD_TYPE=Release
-cmake --build llama.cpp/build -j            # или --target llama-server, если нужен только сервер
+cmake --build llama.cpp/build -j            # or --target llama-server if only the server is needed
 ```
 
-Тесты апстрима:
+Upstream tests:
 
 ```bash
-ctest --test-dir llama.cpp/build             # все
-ctest --test-dir llama.cpp/build -R tokenizer -V   # один по regex имени
+ctest --test-dir llama.cpp/build             # all of them
+ctest --test-dir llama.cpp/build -R tokenizer -V   # one, by name regex
 ```
 
-## Работа с каталогом llama.cpp/
+## Working with the llama.cpp/ directory
 
-`llama.cpp/` — это **отдельный git-репозиторий** (`origin` = `ggml-org/llama.cpp`, ветка `master`), а не сабмодуль внешнего репо: корневой каталог `gemma/` под контролем версий не находится. Относись к нему как к вендоренной зависимости: правки там означают расхождение с апстримом при следующем `git pull`.
+`llama.cpp/` is a **separate git repository** (`origin` = `ggml-org/llama.cpp`, branch `master`), not a submodule of this one — it's gitignored here and versioned on its own. Treat it as a vendored dependency: changes made there mean drifting from upstream on the next `git pull`.
 
-У апстрима свои инструкции для агентов — `llama.cpp/AGENTS.md`. Ключевое: проект **не принимает PR, написанные преимущественно ИИ**. Если работа заходит в изменение самого llama.cpp с прицелом на отправку наверх, сначала прочитай `llama.cpp/AGENTS.md` и `llama.cpp/CONTRIBUTING.md` целиком.
+Upstream has its own agent instructions — `llama.cpp/AGENTS.md`. The key point: the project **does not accept PRs that are primarily AI-written**. If work turns into changing llama.cpp itself with an eye toward upstreaming it, read `llama.cpp/AGENTS.md` and `llama.cpp/CONTRIBUTING.md` in full first.
