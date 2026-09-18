@@ -32,7 +32,10 @@ if curl -sf "localhost:$PORT/health" >/dev/null 2>&1; then
 fi
 
 ARGS=(serve "$MODEL_DIR" --served-model-name "$NAME" --port "$PORT"
-      --no-thinking --enable-auto-tool-choice --tool-call-parser "$PARSER")
+      --no-thinking --enable-auto-tool-choice --tool-call-parser "$PARSER"
+      # Qwen3.8 is hybrid (non-trimmable cache): keep stable-prefix entries and
+      # pin the system prompt so agent turns only prefill the new suffix.
+      --hybrid-cache-entries 8 --pin-system-prompt)
 
 if [[ "${1:-}" == "--bg" ]]; then
     nohup rapid-mlx "${ARGS[@]}" >"$LOG" 2>&1 &
